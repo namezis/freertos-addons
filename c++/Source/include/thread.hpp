@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *  Copyright (c) 2016, Michael Becker (michael.f.becker@gmail.com)
+ *  Copyright (c) 2017, Michael Becker (michael.f.becker@gmail.com)
  *
  *  This file is part of the FreeRTOS C++ Wrappers project.
  *  
@@ -69,11 +69,24 @@
 #ifndef THREAD_HPP_
 #define THREAD_HPP_
 
-
+/**
+ *  The default in the C++ Wrapper classes is to use the C++ string class. 
+ *  If you do not want this, define the following in your makefile or 
+ *  project, and the Thread class will default to using character arrays
+ *  instead of C++ strings.
+ *
+ *  @note If you define this, you also must define CPP_FREERTOS_NO_EXCEPTIONS.
+ *  Some classes throw exceptions if they cannot be constructed, and the 
+ *  exceptions they throw depend on C++ strings.
+ */
+#ifndef CPP_FREERTOS_NO_CPP_STRINGS
 #include <string>
+#endif
 #include "FreeRTOS.h"
 #include "task.h"
 #include "mutex.hpp"
+#include "semaphore.hpp"
+#include "condition_variable.hpp"
 
 namespace cpp_freertos {
 
@@ -85,6 +98,10 @@ namespace cpp_freertos {
  *  To use this, you need to subclass it. All of your threads should
  *  be derived from the Thread class. Then implement the virtual Run
  *  function. This is a similar design to Java threading.
+ *
+ *  By default, we leverage C++ strings for the Thread Name. If this
+ *  is not desirable, define CPP_FREERTOS_NO_CPP_STRINGS and the class
+ *  will fall back to C character arrays.
  */
 class Thread {
 
@@ -103,9 +120,15 @@ class Thread {
          *  @param StackDepth Number of "words" allocated for the Thread stack.
          *  @param Priority FreeRTOS priority of this Thread.
          */
+#ifndef CPP_FREERTOS_NO_CPP_STRINGS
         Thread( const std::string Name,
                 uint16_t StackDepth,
                 UBaseType_t Priority);
+#else
+        Thread( const char *Name,
+                uint16_t StackDepth,
+                UBaseType_t Priority);
+#endif
 
         /**
          *  Constructor to create an unnamed thread.
@@ -134,18 +157,11 @@ class Thread {
          */
         bool Start();
 
-#if (INCLUDE_vTaskDelete == 1)
         /**
-         *  Our destructor, if FreeRTOS is configured to allow task deletion.
+         *  Our destructor. This must exist even if FreeRTOS is
+         *  configured to disallow task deletion.
          */
         virtual ~Thread();
-#else
-        /**
-         *  If we can't delete a task, it makes no sense to have a
-         *  destructor.
-         */
-        ~Thread() = delete;
-#endif
 
         /**
          *  Accessor to get the thread's backing task handle.
@@ -265,11 +281,17 @@ class Thread {
          *
          *  @return a C++ string with the name of the task.
          */
+#ifndef CPP_FREERTOS_NO_CPP_STRINGS
         inline std::string GetName()
         {
             return Name;
         }
-
+#else
+        inline char* GetName()
+        {
+            return pcTaskGetName(handle);
+        }
+#endif
 
     /////////////////////////////////////////////////////////////////////////
     //
@@ -343,6 +365,30 @@ class Thread {
         void ResetDelayUntil();
 #endif
 
+
+#ifdef CPP_FREERTOS_CONDITION_VARIABLES
+
+        /**
+         *  Have this thread wait on a condition variable.
+         *
+         *  @note Threads wait, while ConditionVariables signal.
+         *
+         *  @param Cv The condition variable associated with the Wait.
+         *  @param CvLock The required condition variable lock. The
+         *  Lock must be held before calling Wait.
+         *  @param Timeout Allows you to specify a timeout on the Wait,
+         *  if desired.
+         *
+         *  @return true if the condition variable was signaled,
+         *  false if it timed out.
+         */
+        bool Wait(  ConditionVariable &Cv,
+                    Mutex &CvLock,
+                    TickType_t Timeout = portMAX_DELAY);
+
+#endif
+
+
     /////////////////////////////////////////////////////////////////////////
     //
     //  Private API
@@ -364,7 +410,11 @@ class Thread {
         /**
          *  The name of this thread.
          */
+#ifndef CPP_FREERTOS_NO_CPP_STRINGS
         const std::string Name;
+#else
+        char Name[configMAX_TASK_NAME_LEN];
+#endif
 
         /**
          *  Stack depth of this Thread, in words.
@@ -406,8 +456,36 @@ class Thread {
         TickType_t delayUntilPreviousWakeTime;
 #endif
 
+#ifdef CPP_FREERTOS_CONDITION_VARIABLES
+
+        /**
+         *  How we wait and signal the thread when using condition variables.
+         *  Because a semaphore maintains state, this solves the race
+         *  condition between dropping the CvLock and waiting.
+         */
+        BinarySemaphore ThreadWaitSem;
+
+        /**
+         *  Internal helper function to signal this thread.
+         */
+        inline void Signal()
+        {
+            ThreadWaitSem.Give();
+        }
+
+    /**
+     *  The Thread class and the ConditionVariable class are interdependent.
+     *  If we allow the ConditionVariable class to access the internals of 
+     *  the Thread class, we can reduce the public interface, which is a
+     *  good thing.
+     */
+    friend class ConditionVariable;
+
+#endif
+
 };
 
 
 }
 #endif
+

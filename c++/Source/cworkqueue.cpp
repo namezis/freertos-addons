@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *  Copyright (c) 2016, Michael Becker (michael.f.becker@gmail.com)
+ *  Copyright (c) 2017, Michael Becker (michael.f.becker@gmail.com)
  *
  *  This file is part of the FreeRTOS C++ Wrappers project.
  *  
@@ -126,6 +126,8 @@ WorkQueue::WorkQueue(   uint16_t StackDepth,
 }
 
 
+#if (INCLUDE_vTaskDelete == 1)
+
 WorkQueue::~WorkQueue()
 {
     //
@@ -157,6 +159,8 @@ WorkQueue::~WorkQueue()
     delete WorkerThread;
     delete ThreadComplete;
 }
+
+#endif
 
 
 bool WorkQueue::QueueWork(WorkItem *work)
